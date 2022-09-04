@@ -101,18 +101,6 @@ func NewSymbolPool() *SymbolPool {
 	if err != nil {
 		log.Panicln(err)
 	}
-	go func(pool *SymbolPool) {
-		ticker := time.NewTicker(30 * time.Minute)
-		for {
-			select {
-			case <-ticker.C:
-				err := pool.Update()
-				if err != nil {
-					log.Println("error update symbol pool")
-				}
-			}
-		}
-	}(pool)
 
 	return pool
 }

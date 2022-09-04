@@ -3,10 +3,12 @@ package telegram
 import (
 	"cryptobot/internal/cryptocurrency"
 	"cryptobot/internal/cryptocurrency/client"
+	"cryptobot/internal/cryptocurrency/observer"
 	"errors"
 	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"log"
+	"strconv"
 	"strings"
 )
 
@@ -15,19 +17,33 @@ type Currency interface {
 }
 
 type Telegram struct {
-	Clients []Currency
-	Symbols *client.SymbolPool
-	Bot     *tgbotapi.BotAPI
+	Clients   []Currency
+	Symbols   *client.SymbolPool
+	Bot       *tgbotapi.BotAPI
+	Observer  *observer.Observer
+	EventChan chan observer.SubscriberData
 }
 
-func NewTelegram(bot *tgbotapi.BotAPI, clients []Currency, symbols *client.SymbolPool) *Telegram {
+func NewTelegram(bot *tgbotapi.BotAPI, clients []Currency, symbols *client.SymbolPool, observer2 *observer.Observer, ch chan observer.SubscriberData) *Telegram {
 
-	return &Telegram{Bot: bot, Clients: clients, Symbols: symbols}
+	return &Telegram{Bot: bot, Clients: clients, Symbols: symbols, Observer: observer2, EventChan: ch}
 }
 
 func (t *Telegram) Run() error {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
+	go func() {
+		for {
+			select {
+			case d := <-t.EventChan:
+				m := tgbotapi.NewMessage(d.ChactID, d.String())
+				m.ParseMode = tgbotapi.ModeHTML
+				if _, err := t.Bot.Send(m); err != nil {
+					log.Println(err)
+				}
+			}
+		}
+	}()
 	pool, ok := t.Symbols.PoolSymbol.Load().(map[string]*client.MetaData)
 	if !ok {
 		log.Panicln("pool error")
@@ -78,6 +94,51 @@ func (t *Telegram) Run() error {
 
 				log.Println("currency not found")
 				continue
+			case "sub":
+				str := update.Message.CommandArguments()
+				params := strings.Split(str, " ")
+				if len(params) < 2 {
+					continue
+				}
+				symbol := strings.ToLower(params[0])
+				factor := params[1]
+				pool, ok := t.Symbols.PoolSymbol.Load().(map[string]*client.MetaData)
+				if !ok {
+					continue
+				}
+				if val, ok := pool[symbol]; ok && val.Price != 0 {
+					for _, currency := range t.Clients {
+						data, err := currency.GetCryptocurrency(symbol)
+						if err == nil && data != nil && data.USDT != 0 {
+							val.Price = float64(data.USDT)
+							break
+						}
+
+					}
+
+					f, err := strconv.ParseFloat(factor, 64)
+					if err != nil {
+						continue
+					}
+					d := &observer.SubscriberData{
+						OldValue: val.Price,
+						ChactID:  update.Message.Chat.ID,
+						Symbols:  symbol,
+						Factor:   f,
+					}
+					t.Observer.Subscribe(d)
+					msg.Text = "You subscribed: " + val.Name + "|" + strconv.FormatFloat(d.OldValue, 'f', 10, 64) + "| Factor: " + strconv.FormatFloat(f*100, 'f', 2, 64) + "%"
+				}
+			case "unsub":
+				symbol := update.Message.CommandArguments()
+				d := &observer.SubscriberData{
+					ChactID: update.Message.Chat.ID,
+					Symbols: symbol,
+				}
+
+				t.Observer.Unsubscribe(d)
+				msg.Text = "You unsubscribed"
+
 			default:
 				continue
 			}
