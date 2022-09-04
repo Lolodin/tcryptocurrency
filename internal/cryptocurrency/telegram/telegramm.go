@@ -4,6 +4,7 @@ import (
 	"cryptobot/internal/cryptocurrency"
 	"cryptobot/internal/cryptocurrency/client"
 	"errors"
+	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"log"
 	"strings"
@@ -27,7 +28,11 @@ func NewTelegram(bot *tgbotapi.BotAPI, clients []Currency, symbols *client.Symbo
 func (t *Telegram) Run() error {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
-
+	pool, ok := t.Symbols.PoolSymbol.Load().(map[string]*client.MetaData)
+	if !ok {
+		log.Panicln("pool error")
+	}
+	fmt.Println("len pool", len(pool))
 	updates := t.Bot.GetUpdatesChan(u)
 	for update := range updates {
 		if update.Message != nil { // If we got a message
@@ -42,7 +47,19 @@ func (t *Telegram) Run() error {
 			switch update.Message.Command() {
 			case "p":
 				symbol := update.Message.CommandArguments()
-				if val, ok := t.Symbols.PoolSymbol[strings.ToLower(symbol)]; ok && val.Price != 0 {
+				pool, ok := t.Symbols.PoolSymbol.Load().(map[string]*client.MetaData)
+				if !ok {
+					continue
+				}
+				if val, ok := pool[strings.ToLower(symbol)]; ok && val.Price != 0 {
+					for _, currency := range t.Clients {
+						data, err := currency.GetCryptocurrency(symbol)
+						if err == nil && data != nil && data.USDT != 0 {
+							val.Price = float64(data.USDT)
+							break
+						}
+
+					}
 					data := cryptocurrency.Metadata{Name: val.Name, USDT: cryptocurrency.Price(val.Price), Vol: val.Vol, Change: val.Change}
 					msg.Text = data.String()
 					break end
@@ -50,7 +67,7 @@ func (t *Telegram) Run() error {
 				for _, currency := range t.Clients {
 					data, err := currency.GetCryptocurrency(symbol)
 					if err == nil && data != nil && data.USDT != 0 {
-						if val, ok := t.Symbols.PoolSymbol[strings.ToLower(symbol)]; ok {
+						if val, ok := pool[strings.ToLower(symbol)]; ok {
 							data.Name = val.Name
 						}
 

@@ -17,7 +17,7 @@ type CoinGecko struct {
 }
 
 func (p *CoinGecko) GetCryptocurrency(symbol string) (*cryptocurrency.Metadata, error) {
-	if s, ok := p.Pool.PoolSymbol[symbol]; ok {
+	if s, ok := p.Pool.PoolSymbol.Load().(map[string]MetaData)[symbol]; ok {
 		symbol = strings.ToLower(s.Id)
 	}
 	b, err := p.Client.Get("https://api.coingecko.com/api/v3/coins/" + symbol + "?localization=false&tickers=true&market_data=false&community_data=false&developer_data=false&sparkline=false")

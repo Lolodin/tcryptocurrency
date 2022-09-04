@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type Poloniex struct {
@@ -14,7 +15,7 @@ type Poloniex struct {
 }
 
 func NewPoliniex() *Poloniex {
-	return &Poloniex{Client: &http.Client{}}
+	return &Poloniex{Client: &http.Client{Timeout: 200 * time.Millisecond}}
 }
 
 func (p *Poloniex) GetCryptocurrency(symbol string) (*cryptocurrency.Metadata, error) {

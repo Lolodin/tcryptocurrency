@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type BinanceClient struct {
@@ -14,7 +15,7 @@ type BinanceClient struct {
 }
 
 func NewBinanceClient() *BinanceClient {
-	return &BinanceClient{Client: &http.Client{}}
+	return &BinanceClient{Client: &http.Client{Timeout: 200 * time.Millisecond}}
 }
 
 func (p BinanceClient) GetCryptocurrency(symbol string) (*cryptocurrency.Metadata, error) {

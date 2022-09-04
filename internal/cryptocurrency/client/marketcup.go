@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,7 +23,7 @@ type CoinMarketcup struct {
 }
 
 func NewCoinMarketCupClient() *CoinMarketcup {
-	client := &http.Client{}
+	client := &http.Client{Timeout: 200 * time.Millisecond}
 	return &CoinMarketcup{Client: client}
 }
 
@@ -91,17 +92,17 @@ type Model struct {
 
 type SymbolPool struct {
 	Client     *http.Client
-	PoolSymbol map[string]*MetaData
+	PoolSymbol atomic.Value
 }
 
 func NewSymbolPool() *SymbolPool {
-	pool := &SymbolPool{Client: &http.Client{}, PoolSymbol: map[string]*MetaData{}}
+	pool := &SymbolPool{Client: &http.Client{}, PoolSymbol: atomic.Value{}}
 	err := pool.Update()
 	if err != nil {
 		log.Panicln(err)
 	}
-	go func() {
-		ticker := time.NewTicker(3 * time.Minute)
+	go func(pool *SymbolPool) {
+		ticker := time.NewTicker(30 * time.Minute)
 		for {
 			select {
 			case <-ticker.C:
@@ -111,7 +112,7 @@ func NewSymbolPool() *SymbolPool {
 				}
 			}
 		}
-	}()
+	}(pool)
 
 	return pool
 }
@@ -132,23 +133,27 @@ func (p *SymbolPool) Update() error {
 		return err
 	}
 
-	m := []ParseDataID{}
+	return p.update(err, b)
+}
 
+func (p *SymbolPool) update(err error, b []byte) error {
+	m := []ParseDataID{}
 	err = json.Unmarshal(b, &m)
 	if err != nil {
 		return err
 	}
 	idlist := make([]string, 0, len(m))
+	temp := make(map[string]*MetaData, len(m))
 	for _, datum := range m {
-		if _, ok := p.PoolSymbol[strings.ToLower(datum.Symbol)]; !ok {
+		if _, ok := temp[strings.ToLower(datum.Symbol)]; !ok {
 			data := &MetaData{
 				Id:   datum.Id,
 				Name: datum.Name,
 			}
 
 			idlist = append(idlist, datum.Id)
-			p.PoolSymbol[strings.ToLower(datum.Symbol)] = data
-			p.PoolSymbol[strings.ToLower(datum.Id)] = data
+			temp[strings.ToLower(datum.Symbol)] = data
+			temp[strings.ToLower(datum.Id)] = data
 
 		} else {
 			if datum.Symbol == datum.Id {
@@ -157,35 +162,37 @@ func (p *SymbolPool) Update() error {
 					Name: datum.Name,
 				}
 				idlist = append(idlist, datum.Id)
-				p.PoolSymbol[strings.ToLower(datum.Symbol)] = data
-				p.PoolSymbol[strings.ToLower(datum.Id)] = data
+				temp[strings.ToLower(datum.Symbol)] = data
+				temp[strings.ToLower(datum.Id)] = data
 			}
 		}
 	}
 	for i := 0; i < len(idlist); i += 400 {
 		if i+400 > len(idlist) {
-			err := p.funcName(idlist[i:])
+			temp, err = p.funcName(idlist[i:], temp)
 			if err != nil {
-				time.Sleep(60 * time.Second)
-				p.funcName(idlist[i:])
+				time.Sleep(200 * time.Second)
+				temp, _ = p.funcName(idlist[i:], temp)
 			}
 			break
 		}
-		err := p.funcName(idlist[i : i+400])
+		temp, err = p.funcName(idlist[i:i+400], temp)
 		if err != nil {
-			time.Sleep(60 * time.Second)
-			p.funcName(idlist[i:])
+			time.Sleep(200 * time.Second)
+			temp, _ = p.funcName(idlist[i:], temp)
 		}
 
 	}
 
+	p.PoolSymbol.Store(temp)
+
 	return nil
 }
 
-func (p *SymbolPool) funcName(idlist []string) error {
+func (p *SymbolPool) funcName(idlist []string, temp map[string]*MetaData) (map[string]*MetaData, error) {
 	req, err := http.NewRequest("GET", "https://api.coingecko.com/api/v3/simple/price", nil)
 	if err != nil {
-		return err
+		return temp, err
 	}
 	u := url.Values{}
 	u.Add("ids", strings.TrimSpace(strings.Join(idlist, ",")))
@@ -196,30 +203,38 @@ func (p *SymbolPool) funcName(idlist []string) error {
 	fmt.Println(req.URL.String())
 	res, err := p.Client.Do(req)
 	if err != nil || res.StatusCode != 200 {
-		return errors.New("bad request")
+		return temp, errors.New("bad request")
 	}
 
 	b, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		return err
+		return temp, err
 	}
 
 	info := make(ParseData)
 	err = json.Unmarshal(b, &info)
 	if err != nil {
-		return err
+		return temp, err
 	}
 	log.Println("info len", len(info))
 	for k, s2 := range info {
-		v, ok := p.PoolSymbol[k]
-		fmt.Println(s2)
+		v, ok := temp[k]
 		if ok {
 			v.Vol = s2.Usd24HVol
 			v.Change = s2.Usd24HChange
 			v.Price = s2.Usd
+		} else {
+			el := &MetaData{
+				Id:     k,
+				Name:   k,
+				Vol:    s2.Usd24HVol,
+				Change: s2.Usd24HChange,
+				Price:  s2.Usd,
+			}
+			temp[k] = el
 		}
 	}
-	return nil
+	return temp, nil
 }
 
 type MetaData struct {
