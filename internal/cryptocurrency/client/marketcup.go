@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -132,6 +133,7 @@ func (p *SymbolPool) update(err error, b []byte) error {
 	}
 	idlist := make([]string, 0, len(m))
 	temp := make(map[string]*MetaData, len(m))
+	counter := make(map[string]int)
 	for _, datum := range m {
 		if _, ok := temp[strings.ToLower(datum.Symbol)]; !ok {
 			data := &MetaData{
@@ -145,6 +147,16 @@ func (p *SymbolPool) update(err error, b []byte) error {
 
 		} else {
 			if datum.Symbol == datum.Id {
+				data := &MetaData{
+					Id:   datum.Id,
+					Name: datum.Name,
+				}
+				idlist = append(idlist, datum.Id)
+				temp[strings.ToLower(datum.Symbol)] = data
+				temp[strings.ToLower(datum.Id)] = data
+			} else {
+				counter[datum.Symbol]++
+				datum.Symbol = datum.Symbol + "-" + strconv.Itoa(counter[datum.Symbol])
 				data := &MetaData{
 					Id:   datum.Id,
 					Name: datum.Name,

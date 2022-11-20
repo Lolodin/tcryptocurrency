@@ -8,13 +8,12 @@ import (
 	"cryptobot/internal/scheduler"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"log"
-	"os"
 	"time"
 )
 
 //scp -P 3333 main root@185.237.218.45:/
 func main() {
-	bot, err := tgbotapi.NewBotAPI(os.Getenv("TOKEN"))
+	bot, err := tgbotapi.NewBotAPI("5566392860:AAGHHzZNoVuCSBrPc1LdXch2U8ZSX-iDwxU")
 	if err != nil {
 		log.Panicln(err)
 	}
