@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"cryptobot/internal/cryptocurrency/client"
+	"cryptobot/internal/cryptocurrency/goscurrency"
 	"cryptobot/internal/cryptocurrency/observer"
 	"cryptobot/internal/cryptocurrency/telegram"
 	"cryptobot/internal/scheduler"
@@ -24,9 +25,12 @@ func main() {
 	pool := client.NewSymbolPool()
 
 	observer := observer.NewObserver(pool, ch)
+
+	currency := goscurrency.NewCurrency()
 	s := scheduler.Scheduler{}
 	s.SetupJob(time.Minute*10, pool.Update)
 	s.SetupJob(time.Minute*15, observer.Service)
+	s.SetupJob(time.Hour*8, currency.Update)
 	err = s.Run(context.Background())
 	if err != nil {
 		log.Panicln(err)
@@ -34,7 +38,7 @@ func main() {
 
 	sl = append(sl, client.NewBinanceClient(), client.NewPoliniex(), client.NewCoinMarketCupClient())
 
-	app := telegram.NewTelegram(bot, sl, pool, observer, ch)
+	app := telegram.NewTelegram(bot, sl, pool, observer, ch, currency)
 l:
 	if err := app.Run(); err != nil {
 		log.Println(err)

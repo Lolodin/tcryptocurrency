@@ -17,16 +17,17 @@ type Currency interface {
 }
 
 type Telegram struct {
-	Clients   []Currency
-	Symbols   *client.SymbolPool
-	Bot       *tgbotapi.BotAPI
-	Observer  *observer.Observer
-	EventChan chan observer.SubscriberData
+	Clients         []Currency
+	Symbols         *client.SymbolPool
+	Bot             *tgbotapi.BotAPI
+	Observer        *observer.Observer
+	CentralCurrency Currency
+	EventChan       chan observer.SubscriberData
 }
 
-func NewTelegram(bot *tgbotapi.BotAPI, clients []Currency, symbols *client.SymbolPool, observer2 *observer.Observer, ch chan observer.SubscriberData) *Telegram {
+func NewTelegram(bot *tgbotapi.BotAPI, clients []Currency, symbols *client.SymbolPool, observer2 *observer.Observer, ch chan observer.SubscriberData, cc Currency) *Telegram {
 
-	return &Telegram{Bot: bot, Clients: clients, Symbols: symbols, Observer: observer2, EventChan: ch}
+	return &Telegram{Bot: bot, Clients: clients, Symbols: symbols, Observer: observer2, EventChan: ch, CentralCurrency: cc}
 }
 
 func (t *Telegram) Run() error {
@@ -83,8 +84,8 @@ func (t *Telegram) Run() error {
 				for _, currency := range t.Clients {
 					data, err := currency.GetCryptocurrency(symbol)
 					if err == nil && data != nil && data.USDT != 0 {
-						if val, ok := pool[strings.ToLower(symbol)]; ok {
-							data.Name = val.Name
+						if _, ok := pool[strings.ToLower(symbol)]; ok {
+							data.Name = symbol
 						}
 
 						msg.Text = data.String()
@@ -138,7 +139,15 @@ func (t *Telegram) Run() error {
 
 				t.Observer.Unsubscribe(d)
 				msg.Text = "You unsubscribed"
+			case "cur":
+				symbol := update.Message.CommandArguments()
 
+				c, err := t.CentralCurrency.GetCryptocurrency(symbol)
+				if err != nil {
+					msg.Text = err.Error()
+					break
+				}
+				msg.Text = c.String()
 			default:
 				continue
 			}
